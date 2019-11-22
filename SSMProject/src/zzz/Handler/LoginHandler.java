@@ -1,0 +1,153 @@
+package zzz.Handler;
+
+import java.io.FileOutputStream;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
+import org.apache.commons.codec.digest.DigestUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.multipart.MultipartFile;
+import zzz.Mapper.UserMapper;
+import zzz.entity.User;
+
+@Controller
+public class LoginHandler {
+	@Autowired
+	@Qualifier("userMapper")
+	private UserMapper userMapper;
+
+	@RequestMapping(value = "check", method = RequestMethod.POST)
+	public String check(@RequestParam("account") String account, @RequestParam("pwd") String password,
+			Map<String, Object> map, HttpServletResponse response,HttpSession session) {
+		if(session.getAttribute("user")!=null) {
+			map.put("mes","toomany");
+			return "redirect:/Index1.jsp";
+		}
+		String pwd = userMapper.queryLoginUser(account);
+		password = DigestUtils.md5Hex(password);
+		if(pwd==null) {
+			map.put("mes","accounterror");
+			return "redirect:/Index1.jsp";
+		}
+		if (pwd.equals(password)) {
+			
+			User user = userMapper.queryUser(account);
+			user.setFollower_num(userMapper.queryNumofFollowers(user.getUser_id()));
+			user.setFollowing_num(userMapper.queryNumofFollowing(user.getUser_id()));
+			String date = userMapper.query_logininfo(user.getUser_id());
+			SimpleDateFormat sf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+			
+			if(date==null) {
+				userMapper.create_logininfo(user.getUser_id(),sf.format(new Date()));
+			}else {
+				user.setLast_time(date);
+				userMapper.update_logininfo(user.getUser_id(),sf.format(new Date()));
+			}
+			
+			session.setAttribute("user", user.getNickname());
+			//System.out.println(user.getManager_flag());
+			if(user.getManager_flag()==1) {
+				List<String> blocks = userMapper.managersBlock(user.getUser_id());
+				session.setAttribute("blocks", blocks);
+			}
+			return "redirect:/Index1.jsp";
+
+		}else {
+			map.put("mes","passworderror");
+			return "redirect:/Index1.jsp";
+		}
+		
+	}
+	@Autowired
+	@Qualifier("user")
+	private User user;
+
+//	@ResponseBody
+	
+	@RequestMapping("register")
+	public String register(@RequestParam("portrait") MultipartFile file, @RequestParam("account") String account,
+			@RequestParam("pwd") String password, @RequestParam("email") String email, HttpServletResponse response,
+			@RequestParam("name")String name,Map<String,Object> map)throws IOException {
+		if(userMapper.queryAccount(account)==1) {
+			return "redirect:/loginandregister/register.jsp?mes=accounterror";
+		}else if(userMapper.queryEmail(email)==1) {
+			return "redirect:/loginandregister/register.jsp?mes=emailerror";
+		}else if(userMapper.queryNickname(name)==1) {
+			return "redirect:/loginandregister/register.jsp?mes=nameerror";
+		}else {
+			//�����û���Ψһ��ʶ
+			String a = UUID.randomUUID().toString().replace("-", "") ;
+			StringBuilder id = new StringBuilder(a);
+			id.insert(0, 'U');
+			
+			//��ȡ�û��ϴ���ͷ��Ĭ����default.png
+			String path = "image/portrait/default.png";
+			
+			if (file.getOriginalFilename().contains(".")) {
+				InputStream in = file.getInputStream();
+				int len = -1;
+				byte [] buf = new byte[1024*100];
+				FileOutputStream out = new FileOutputStream("F:\\java\\eclipse\\Workspace\\SSMProject\\WebContent\\image\\portrait\\"+id+file.getOriginalFilename());
+				while((len = in.read(buf))!=-1){
+					out.write(buf,0,len);
+				}
+				in.close();
+				out.close();
+				path = "image/portrait/" + id+file.getOriginalFilename();
+			}
+	
+			
+			SimpleDateFormat sf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+			String date = sf.format(new Date());
+			
+			//��ȡ�û����󲢸�ֵ
+			password = DigestUtils.md5Hex(password);
+			user.setUser_id(id.toString());
+			user.setAccount(account);
+			user.setEmail(email);
+			user.setPassword(password);
+			user.setPortrait_path(path);
+			user.setNickname(name);
+			user.setRegister_time(date);
+			userMapper.regeisterUser(user);
+			//��ת����½����
+			return "redirect:/loginandregister/login.jsp";
+		}
+	}
+	
+	
+	@RequestMapping("reload")
+	public String reload(HttpSession session) {
+
+		User user = userMapper.queryUser(((User)session.getAttribute("user")).getAccount());
+		user.setFollower_num(userMapper.queryNumofFollowers(user.getUser_id()));
+		user.setFollowing_num(userMapper.queryNumofFollowing(user.getUser_id()));
+		user.setLast_time(userMapper.query_logininfo(user.getUser_id()));
+		session.setAttribute("user", user.getNickname());
+		//System.out.println(user.getManager_flag());
+		if(user.getManager_flag()==1) {
+			List<String> blocks = userMapper.managersBlock(user.getUser_id());
+			session.setAttribute("blocks", blocks);
+		}
+		
+		return "redirect:/pre.jsp";
+	}
+	
+	@RequestMapping("logout")
+	public String logout(HttpSession session) {
+		session.removeAttribute("user");
+		return "redirect:/Index1.jsp";
+	}
+}
